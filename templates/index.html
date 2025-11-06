@@ -171,14 +171,21 @@
                 label.textContent = field.name;
                 
                 let input;
-                if (field.type.toLowerCase().includes('boolean')) {
+                const fieldTypeLower = field.type.toLowerCase();
+                if (fieldTypeLower.includes('boolean')) {
                     input = document.createElement('input');
                     input.type = 'checkbox';
                     input.checked = record[field.name];
                     input.className = 'h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded';
-                } else if (field.type.toLowerCase().includes('integer')) {
+                } else if (fieldTypeLower.includes('integer') || fieldTypeLower.includes('decimal') || 
+                           fieldTypeLower.includes('float') || fieldTypeLower.includes('double') || 
+                           fieldTypeLower.includes('numeric')) {
                     input = document.createElement('input');
                     input.type = 'number';
+                    // Set step for decimal types
+                    if (!fieldTypeLower.includes('integer')) {
+                        input.step = 'any';
+                    }
                     input.value = record[field.name] || '';
                     input.className = 'mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-3 py-2 border';
                 } else {

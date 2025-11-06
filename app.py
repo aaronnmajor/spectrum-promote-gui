@@ -5,7 +5,7 @@ Renders forms dynamically using Jinja2 templates with Tailwind CSS styling.
 """
 
 from flask import Flask, render_template, request, jsonify
-from sqlalchemy import create_engine, text, inspect
+from sqlalchemy import create_engine, text, inspect, MetaData, Table
 from sqlalchemy.exc import SQLAlchemyError
 import os
 from crypto_utils import encrypt, decrypt
@@ -139,9 +139,10 @@ def metadata_endpoint():
             'table': table_name,
             'fields': metadata
         })
-    except Exception as e:
+    except Exception:
+        # Don't expose internal error details to users
         return jsonify({
-            'error': str(e)
+            'error': 'Failed to retrieve metadata'
         }), 500
 
 
@@ -170,7 +171,7 @@ def update_endpoint():
         # Validate table name exists to prevent SQL injection
         inspector = inspect(engine)
         if table_name not in inspector.get_table_names():
-            return jsonify({'error': f'Table {table_name} does not exist'}), 400
+            return jsonify({'error': 'Table does not exist'}), 400
         
         # Get primary key column name from metadata
         columns = inspector.get_columns(table_name)
@@ -181,19 +182,24 @@ def update_endpoint():
         valid_columns = {col['name'] for col in columns}
         for field_name in fields.keys():
             if field_name not in valid_columns:
-                return jsonify({'error': f'Invalid column name: {field_name}'}), 400
+                return jsonify({'error': 'Invalid column name'}), 400
         
-        # Build UPDATE query dynamically with validated column names
-        from sqlalchemy import quoted_name
-        safe_table = quoted_name(table_name, quote=True)
-        set_clause = ', '.join([f"{key} = :{key}" for key in fields.keys()])
-        query = text(f"UPDATE {safe_table} SET {set_clause} WHERE {primary_key_name} = :pk_id")
+        # Use SQLAlchemy Table object for safe query construction
+        metadata = MetaData()
+        table = Table(table_name, metadata, autoload_with=engine)
         
-        # Add primary key to parameters
-        params = {**fields, 'pk_id': record_id}
+        # Build UPDATE statement using SQLAlchemy
+        from sqlalchemy import update
+        stmt = update(table)
+        
+        # Set WHERE clause using primary key
+        stmt = stmt.where(table.c[primary_key_name] == record_id)
+        
+        # Set values for columns
+        stmt = stmt.values(**fields)
         
         with engine.connect() as conn:
-            result = conn.execute(query, params)
+            result = conn.execute(stmt)
             conn.commit()
             
             if result.rowcount == 0:
@@ -205,13 +211,15 @@ def update_endpoint():
                 'rows_affected': result.rowcount
             })
     
-    except SQLAlchemyError as e:
+    except SQLAlchemyError:
+        # Don't expose internal database error details to users
         return jsonify({
-            'error': f'Database error: {str(e)}'
+            'error': 'Database operation failed'
         }), 500
-    except Exception as e:
+    except Exception:
+        # Don't expose internal error details to users
         return jsonify({
-            'error': str(e)
+            'error': 'Update operation failed'
         }), 500
 
 
@@ -220,4 +228,7 @@ if __name__ == '__main__':
     init_sample_database()
     
     # Run the Flask app
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Note: debug=True should only be used in development
+    # In production, use a WSGI server like gunicorn and set debug=False
+    debug_mode = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
+    app.run(debug=debug_mode, host='0.0.0.0', port=5000)
