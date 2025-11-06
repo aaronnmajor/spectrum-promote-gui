@@ -240,9 +240,11 @@
                         // Use parseFloat for decimal values, parseInt for integers
                         const fieldType = field.type.toLowerCase();
                         if (fieldType.includes('decimal') || fieldType.includes('float') || fieldType.includes('double') || fieldType.includes('numeric')) {
-                            fields[field.name] = parseFloat(input.value) || 0;
+                            const floatVal = parseFloat(input.value);
+                            fields[field.name] = isNaN(floatVal) ? null : floatVal;
                         } else {
-                            fields[field.name] = parseInt(input.value) || 0;
+                            const intVal = parseInt(input.value, 10);
+                            fields[field.name] = isNaN(intVal) ? null : intVal;
                         }
                     } else {
                         fields[field.name] = input.value;
@@ -257,7 +259,7 @@
                 },
                 body: JSON.stringify({
                     table: tableName,
-                    id: parseInt(recordId),
+                    id: parseInt(recordId, 10),
                     fields: fields
                 })
             })

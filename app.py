@@ -93,11 +93,13 @@ def get_table_data(table_name='users'):
     if table_name not in inspector.get_table_names():
         return []
     
+    # Use SQLAlchemy Table object for safe query construction
+    metadata = MetaData()
+    table = Table(table_name, metadata, autoload_with=engine)
+    
     with engine.connect() as conn:
-        # Use quoted identifier for table name to prevent SQL injection
-        from sqlalchemy import quoted_name
-        safe_table = quoted_name(table_name, quote=True)
-        result = conn.execute(text(f"SELECT * FROM {safe_table}"))
+        from sqlalchemy import select
+        result = conn.execute(select(table))
         columns = result.keys()
         rows = []
         for row in result:
@@ -121,8 +123,9 @@ def index():
         primary_key = pk_columns['constrained_columns'][0] if pk_columns['constrained_columns'] else 'id'
         
         return render_template('index.html', metadata=metadata, data=data, table_name='users', primary_key=primary_key)
-    except Exception as e:
-        return render_template('error.html', error=str(e)), 500
+    except Exception:
+        # Don't expose internal error details to users
+        return render_template('error.html', error='An error occurred while loading the page'), 500
 
 
 @app.route('/metadata')
