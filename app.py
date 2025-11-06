@@ -88,8 +88,16 @@ def get_table_data(table_name='users'):
     Returns:
         List of dictionaries containing row data
     """
+    # Validate table name exists to prevent SQL injection
+    inspector = inspect(engine)
+    if table_name not in inspector.get_table_names():
+        return []
+    
     with engine.connect() as conn:
-        result = conn.execute(text(f"SELECT * FROM {table_name}"))
+        # Use quoted identifier for table name to prevent SQL injection
+        from sqlalchemy import quoted_name
+        safe_table = quoted_name(table_name, quote=True)
+        result = conn.execute(text(f"SELECT * FROM {safe_table}"))
         columns = result.keys()
         rows = []
         for row in result:
@@ -106,7 +114,13 @@ def index():
     try:
         metadata = get_table_metadata('users')
         data = get_table_data('users')
-        return render_template('index.html', metadata=metadata, data=data, table_name='users')
+        
+        # Get primary key column name
+        inspector = inspect(engine)
+        pk_columns = inspector.get_pk_constraint('users')
+        primary_key = pk_columns['constrained_columns'][0] if pk_columns['constrained_columns'] else 'id'
+        
+        return render_template('index.html', metadata=metadata, data=data, table_name='users', primary_key=primary_key)
     except Exception as e:
         return render_template('error.html', error=str(e)), 500
 
@@ -153,12 +167,30 @@ def update_endpoint():
         if not fields:
             return jsonify({'error': 'No fields to update'}), 400
         
-        # Build UPDATE query dynamically
-        set_clause = ', '.join([f"{key} = :{key}" for key in fields.keys()])
-        query = text(f"UPDATE {table_name} SET {set_clause} WHERE id = :id")
+        # Validate table name exists to prevent SQL injection
+        inspector = inspect(engine)
+        if table_name not in inspector.get_table_names():
+            return jsonify({'error': f'Table {table_name} does not exist'}), 400
         
-        # Add id to parameters
-        params = {**fields, 'id': record_id}
+        # Get primary key column name from metadata
+        columns = inspector.get_columns(table_name)
+        pk_columns = inspector.get_pk_constraint(table_name)
+        primary_key_name = pk_columns['constrained_columns'][0] if pk_columns['constrained_columns'] else 'id'
+        
+        # Validate that all field names exist in the table
+        valid_columns = {col['name'] for col in columns}
+        for field_name in fields.keys():
+            if field_name not in valid_columns:
+                return jsonify({'error': f'Invalid column name: {field_name}'}), 400
+        
+        # Build UPDATE query dynamically with validated column names
+        from sqlalchemy import quoted_name
+        safe_table = quoted_name(table_name, quote=True)
+        set_clause = ', '.join([f"{key} = :{key}" for key in fields.keys()])
+        query = text(f"UPDATE {safe_table} SET {set_clause} WHERE {primary_key_name} = :pk_id")
+        
+        # Add primary key to parameters
+        params = {**fields, 'pk_id': record_id}
         
         with engine.connect() as conn:
             result = conn.execute(query, params)
